@@ -1,5 +1,5 @@
 import requests
-from datetime import date
+from datetime import date, timedelta
 
 DINING_API_URL = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
 
@@ -105,10 +105,23 @@ def main():
     choice = int(input("\nEnter the number of your choice: ")) - 1
     selected_court = all_courts[choice]['name']
 
-    date_str = date.today().isoformat()  # use today's date for now
+    days = []
+    today = date.today()
+    for offset in range(-1, 7):
+        d = today + timedelta(days=offset)
+        day_name = d.strftime("%A")
+        days.append((d, day_name))
 
-    print(f"\nFetching menu for {selected_court} on {date_str}...")
-    menu_data = get_location_menu(selected_court, date_str)
+    print("\nSelect a day:")
+    for i, (d, day_name) in enumerate(days):
+        label = {0: "Yesterday", 1: "Today", 2: "Tomorrow"}.get(i, d.strftime("%B %-d"))
+        print(f"  {i}. {label} - ({day_name})")
+
+    day_choice = int(input("\nEnter the number of your choice: "))
+    selected_date, selected_day_name = days[day_choice]
+
+    print(f"\nFetching menu for {selected_court} on {selected_date.isoformat()} ({selected_day_name})...")
+    menu_data = get_location_menu(selected_court, selected_date.isoformat())
 
     parse_and_print_menu(menu_data)
 
