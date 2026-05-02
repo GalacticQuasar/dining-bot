@@ -94,14 +94,13 @@ def main():
     categories = get_start_locations()
 
     all_courts = []
+    print("\nDining Locations:")
     for cat in categories:
+        print(f"\n  {cat['name']}")
         for court in cat['diningCourts']:
+            idx = len(all_courts)
             all_courts.append(court)
-
-    # display menu
-    print("\nSelect a Dining Court:")
-    for idx, court in enumerate(all_courts):
-        print(f"{idx + 1}. {court['formalName']}")
+            print(f"    {idx + 1}. {court['formalName']}")
 
     choice = int(input("\nEnter the number of your choice: ")) - 1
     selected_court = all_courts[choice]['name']
