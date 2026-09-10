@@ -4,12 +4,16 @@ import { getStartLocations, getLocationMenu } from "./api";
 import DiningCourtSelector from "./components/DiningCourtSelector";
 import DateSelector from "./components/DateSelector";
 import MenuDisplay from "./components/MenuDisplay";
+import CompareView from "./components/CompareView";
+
+type View = "single" | "compare";
 
 function getTodayIso(): string {
   return new Date().toISOString().split("T")[0];
 }
 
 export default function App() {
+  const [view, setView] = useState<View>("single");
   const [categories, setCategories] = useState<DiningCourtCategory[]>([]);
   const [selectedCourt, setSelectedCourt] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<string>(getTodayIso());
@@ -82,25 +86,53 @@ export default function App() {
           <p className="font-body text-sm text-text-secondary mt-2">
             Browse dining court menus across campus
           </p>
+          <div className="mt-5 inline-flex rounded-lg border border-border-subtle bg-surface-2/60 p-1">
+            <button
+              type="button"
+              onClick={() => setView("single")}
+              className={`px-4 py-1.5 rounded-md font-body text-sm transition-all duration-200 cursor-pointer ${
+                view === "single"
+                  ? "bg-gold-muted text-gold-bright"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Single Court
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("compare")}
+              className={`px-4 py-1.5 rounded-md font-body text-sm transition-all duration-200 cursor-pointer ${
+                view === "compare"
+                  ? "bg-gold-muted text-gold-bright"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Compare Courts
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex flex-col sm:flex-row gap-6 mb-8 animate-fade-in-up">
-          <div className="sm:w-64 flex-shrink-0">
-            <DiningCourtSelector
-              categories={categories}
-              selected={selectedCourt}
-              onChange={handleCourtChange}
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <DateSelector
-              selectedDate={selectedDate}
-              onChange={handleDateChange}
-            />
-          </div>
-        </div>
+        {view === "compare" ? (
+          <CompareView categories={categories} />
+        ) : (
+          <>
+            <div className="flex flex-col sm:flex-row gap-6 mb-8 animate-fade-in-up">
+              <div className="sm:w-64 flex-shrink-0">
+                <DiningCourtSelector
+                  categories={categories}
+                  selected={selectedCourt}
+                  onChange={handleCourtChange}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <DateSelector
+                  selectedDate={selectedDate}
+                  onChange={handleDateChange}
+                />
+              </div>
+            </div>
 
         {error && (
           <div className="bg-red-badge/30 border border-red-badge-text/20 rounded-xl p-4 mb-6 animate-fade-in-up">
@@ -138,6 +170,8 @@ export default function App() {
               Choose a location to view today's menu
             </p>
           </div>
+        )}
+          </>
         )}
       </main>
 
