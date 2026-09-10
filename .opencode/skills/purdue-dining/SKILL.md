@@ -1,20 +1,36 @@
 ---
 name: purdue-dining
 description: Use when the user asks about Purdue dining menus, dining courts, what's for breakfast/lunch/dinner, food options, specific foods (e.g. chicken, pizza), dietary restrictions (vegan, vegetarian, gluten-free), allergens, or which dining court serves something. Triggers on Purdue dining, dining courts, campus food, Earhart, Ford, Hillenbrand, Wiley, Windsor, meal times, and food search queries.
+compatibility: Requires Python 3.8+ and network access to api.hfs.purdue.edu. Uses uv (or system python3 with requests installed) to run the bundled script.
+metadata:
+  author: GalacticQuasar
+  version: "1.1"
 ---
 
 # Purdue Dining Courts
 
-Answer dining questions by running the CLI in this repo. Do not call the API any other way.
+Answer dining questions by running the bundled CLI script. Do not call the API any other way.
+
+## Available scripts
+
+- **`scripts/menu.py`** — Queries the Purdue dining courts GraphQL API: lists locations, shows menus, searches menu items. Supports `--help` on every subcommand.
 
 ## CLI reference
 
-Run from the repo root (`<repo>/menu.py`). All output goes to stdout; warnings go to stderr. Exit code is 0 even when nothing is found.
+Run with the skill directory as the working directory, or use absolute paths. All output goes to stdout; warnings go to stderr. Exit code is 0 even when nothing is found.
+
+Preferred (self-contained, auto-installs `requests` via inline PEP 723 metadata):
 
 ```
-python3 menu.py locations [--json]
-python3 menu.py menu --court COURT [--date DATE] [--meal MEAL] [--json]
-python3 menu.py search "TEXT" [--court COURT] [--date DATE] [--meal MEAL] [--json]
+uv run scripts/menu.py --help
+```
+
+Fallback (plain python3, requires `requests` in the environment):
+
+```
+python3 scripts/menu.py locations [--json]
+python3 scripts/menu.py menu --court COURT [--date DATE] [--meal MEAL] [--json]
+python3 scripts/menu.py search "TEXT" [--court COURT] [--date DATE] [--meal MEAL] [--json]
 ```
 
 - `COURT`: a location name (e.g. `Ford`), `courts` (the 5 dining courts only), or `all` (every location, default for search).
@@ -27,26 +43,26 @@ Dining courts (use `courts` to query all 5 at once): `Earhart`, `Ford`, `Hillenb
 
 Other locations (rarely relevant; included by `all`): `1bowl at Meredith Hall`, `Pete's Za at Tarkington Hall`, `Sushi Boss at South Hall`, plus `Earhart On-the-GO!`, `Ford On-the-GO!`, `Lawson On-the-GO!`, `Windsor On-the-GO!`.
 
-If unsure a name is valid, run `python3 menu.py locations` first.
+If unsure a name is valid, run `python3 scripts/menu.py locations` first.
 
 ## Answering questions
 
 **"What are some chicken options for dinner today?"** — food-type questions. Search across all locations, then pick appealing options (vary by court/station, note standouts):
 
 ```
-python3 menu.py search "chicken" --court all --date today --meal dinner
+python3 scripts/menu.py search "chicken" --court all --date today --meal dinner
 ```
 
 **"What's for dinner at Ford?" / "Ford menu"** — show the menu for a specific court:
 
 ```
-python3 menu.py menu --court Ford --date today --meal dinner
+python3 scripts/menu.py menu --court Ford --date today --meal dinner
 ```
 
 **"Where can I get a vegan/gluten-free/vegetarian dinner?"** — dietary questions. Fetch JSON and filter on traits:
 
 ```
-python3 menu.py menu --court courts --date today --meal dinner --json
+python3 scripts/menu.py menu --court courts --date today --meal dinner --json
 ```
 
 Each menu item has a `traits` list. Common traits: `Vegan`, `Vegetarian`, `Gluten` (contains gluten — so "gluten-free" means items WITHOUT the `Gluten` trait), `Milk`, `Eggs`, `Peanuts`, `Tree Nuts`, `Soy`, `Wheat`, `Fish`, `Shellfish`, `Sesame`, `Coconut`. Note allergen traits mark what a food *contains*, not what it's free of. Filter in a small Python one-liner or read the readable output directly, whichever is easier.
@@ -54,8 +70,8 @@ Each menu item has a `traits` list. Common traits: `Vegan`, `Vegetarian`, `Glute
 **"When is X available this week?"** — loop over dates. E.g. `today`, `tomorrow`, then weekday names:
 
 ```
-python3 menu.py search "pad thai" --court all --date monday
-python3 menu.py search "pad thai" --court all --date tuesday
+python3 scripts/menu.py search "pad thai" --court all --date monday
+python3 scripts/menu.py search "pad thai" --court all --date tuesday
 ...
 ```
 

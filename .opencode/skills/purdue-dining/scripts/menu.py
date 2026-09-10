@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.8"
+# dependencies = ["requests"]
+# ///
 """Non-interactive CLI for the Purdue dining courts API. Designed for agent use.
 
 Examples:
-    python3 menu.py locations
-    python3 menu.py menu --court Ford --date today
-    python3 menu.py menu --court all --date tomorrow --meal dinner
-    python3 menu.py search "chicken" --meal dinner
-    python3 menu.py menu --court all --date friday --json
+    python3 scripts/menu.py locations
+    python3 scripts/menu.py menu --court Ford --date today
+    python3 scripts/menu.py menu --court all --date tomorrow --meal dinner
+    python3 scripts/menu.py search "chicken" --meal dinner
+    python3 scripts/menu.py menu --court all --date friday --json
 """
 
 import argparse
