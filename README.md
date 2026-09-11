@@ -2,7 +2,7 @@
 
 Purdue Dining Courts Bot — a CLI for Purdue's dining menus API plus an [Agent Skills](https://agentskills.io) skill that lets any AI agent answer dining questions.
 
-[![skills.sh](https://skills.sh/b/GalacticQuasar/dining-bot)](https://skills.sh/GalacticQuasar/dining-bot)
+[![purdue-dining](https://skills.sh/b/GalacticQuasar/dining-bot?label=purdue-dining)](https://skills.sh/GalacticQuasar/dining-bot)
 
 ## Install the agent skill
 
