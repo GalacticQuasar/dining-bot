@@ -73,6 +73,29 @@ python3 .agents/skills/purdue-dining/scripts/menu.py menu --court all --date fri
 
 There's also `script.py` — the original interactive CLI (pick a court and date from prompts).
 
+## TUI
+
+`tui.py` is a terminal UI ([Textual](https://textual.textualize.io/)) showing all five dining courts plus 1bowl at Meredith Hall side by side, fetched in parallel:
+
+```bash
+uv run tui.py
+```
+
+Each pane scrolls independently; on narrow terminals the row of panes scrolls horizontally.
+
+| Key | Action |
+|-----|--------|
+| `←` `→` | Scroll between locations |
+| `↑` `↓` / `PgUp` `PgDn` | Scroll the focused pane |
+| `n` / `p` | Next / previous day |
+| `t` | Today |
+| `b` / `l` / `d` | Show only breakfast / lunch / dinner |
+| `a` | Show all meals |
+| `v` | Toggle diet/allergen labels (off by default) |
+| `q` | Quit |
+
+Headless smoke test (no TTY needed): `uv run test_tui.py`
+
 ## Features
 
 - Browse menus by dining court, date, and meal
