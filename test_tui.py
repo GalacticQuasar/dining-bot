@@ -129,7 +129,10 @@ async def main():
         dinner_content = pane_content(panes[0])
         assert "Breakfast" not in dinner_content and "Lunch" not in dinner_content
         bowl_content = pane_content(panes[-1])
-        assert "Chicken Alfredo Bowl" in bowl_content, "1bowl dinner should render"
+        bowl_dinner = tui.filter_meals(panes[-1].entry["meals"], "Dinner")
+        assert bowl_dinner and bowl_dinner[0]["items"], "1bowl should serve dinner today"
+        first_item = bowl_dinner[0]["items"][0]["item"]
+        assert first_item in bowl_content, f"1bowl dinner should render {first_item!r}"
         print("dinner filter ok")
 
         # Breakfast on 1bowl (it serves Lunch/Dinner only) shows the notice.
@@ -159,6 +162,37 @@ async def main():
         await pilot.pause()
         assert pane_content(panes[0]) == content_l, "repeat filter press should be a no-op"
         print("repeat filter no-op ok")
+
+        # Left/right move focus between panes, clamped at both ends.
+        panes[0].focus()
+        await pilot.pause()
+        await pilot.press("right")
+        await pilot.pause()
+        assert app.focused is panes[1], "right should focus the next pane"
+        await pilot.press("left", "left")
+        await pilot.pause()
+        assert app.focused is panes[0], "left should stop at the first pane"
+        for _ in panes:
+            await pilot.press("right")
+        await pilot.pause()
+        assert app.focused is panes[-1], "right should stop at the last pane"
+        print("pane navigation ok")
+
+    # At 80 columns most panes are off-screen; moving to the last one must
+    # scroll it into view.
+    app = tui.DiningApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await wait_loaded(app)
+        panes = list(app.query(tui.LocationPane))
+        container = app.query_one("#panes")
+        assert container.scroll_x == 0
+        for _ in panes:
+            await pilot.press("right")
+        await pilot.pause(0.5)
+        assert app.focused is panes[-1]
+        assert container.scroll_x > 0, "focusing an off-screen pane should scroll to it"
+        assert panes[-1].region.right <= container.region.right, "last pane should be fully visible"
+        print(f"scroll into view ok: scroll_x={container.scroll_x}")
 
     print("smoke test passed")
 

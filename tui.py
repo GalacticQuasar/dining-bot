@@ -17,6 +17,7 @@ from datetime import date, timedelta
 import httpx
 from rich.markup import escape
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import HorizontalScroll, VerticalScroll
 from textual.widgets import Footer, Header, LoadingIndicator, Static
 
@@ -175,6 +176,13 @@ def menu_markup(entry, show_traits=False, meal_filter=None):
 class LocationPane(VerticalScroll):
     """One location's menu, independently scrollable."""
 
+    # Override VerticalScroll's horizontal scroll keys: left/right move
+    # between panes instead.
+    BINDINGS = [
+        Binding("left", "app.focus_pane(-1)", "Prev court", key_display="\N{LEFTWARDS ARROW}"),
+        Binding("right", "app.focus_pane(1)", "Next court", key_display="\N{RIGHTWARDS ARROW}"),
+    ]
+
     def __init__(self, court_name, **kwargs):
         super().__init__(**kwargs)
         self.court_name = court_name
@@ -307,6 +315,18 @@ class DiningApp(App):
             return
         self._date = new_date
         self.run_worker(self.load_menus(), exclusive=True)
+
+    def action_focus_pane(self, step):
+        """Focus the visible pane `step` places from the focused one,
+        stopping at either end. Focusing scrolls the pane into view."""
+        panes = [p for p in self.query(LocationPane) if p.display]
+        if not panes:
+            return
+        if self.focused not in panes:
+            panes[0].focus()
+            return
+        index = panes.index(self.focused) + step
+        panes[max(0, min(index, len(panes) - 1))].focus()
 
     def action_today(self):
         self.change_date(date.today())
