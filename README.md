@@ -89,3 +89,7 @@ There's also `script.py` — the original interactive CLI (pick a court and date
 ## Disclaimer
 
 Not affiliated with or endorsed by Purdue University. Menu data comes from Purdue's public dining API and may be incomplete or out of date — always confirm with [Purdue Dining](https://dining.purdue.edu/) if accuracy matters (allergens especially).
+
+## License
+
+[MIT](LICENSE)

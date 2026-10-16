@@ -1,10 +1,11 @@
 ---
 name: purdue-dining
 description: Use when the user asks about Purdue dining menus, dining courts, what's for breakfast/lunch/dinner, food options, specific foods (e.g. chicken, pizza), dietary restrictions (vegan, vegetarian, gluten-free), allergens, or which dining court serves something. Triggers on Purdue dining, dining courts, campus food, Earhart, Ford, Hillenbrand, Wiley, Windsor, meal times, and food search queries.
+license: MIT
 compatibility: Requires Python 3.8+ and network access to api.hfs.purdue.edu. Uses uv (or system python3 with requests installed) to run the bundled script.
 metadata:
   author: GalacticQuasar
-  version: "1.1"
+  version: "1.2"
 ---
 
 # Purdue Dining Courts
