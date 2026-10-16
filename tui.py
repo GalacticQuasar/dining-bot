@@ -12,7 +12,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx
 from rich.markup import escape
@@ -43,6 +43,8 @@ query getLocationMenu($name: String!, $date: Date!) {
       meals {
         name
         status
+        startTime
+        endTime
         stations {
           name
           items {
@@ -97,7 +99,8 @@ async def pick_locations(client):
 
 async def fetch_menu(client, court_name, date_str):
     """Fetch and flatten one location's menu. Returns
-    {court, formal_name, meals: [{name, status, items: [{station, item, traits}]}]}."""
+    {court, formal_name, meals: [{name, status, start, end, items: [{station, item, traits}]}]},
+    where start/end are aware datetimes, or None when the API gives no hours."""
     body = await graphql(
         client, "getLocationMenu", MENU_QUERY, {"name": court_name, "date": date_str}
     )
@@ -117,8 +120,41 @@ async def fetch_menu(client, court_name, date_str):
                 items.append(
                     {"station": station["name"], "item": item["name"], "traits": traits}
                 )
-        meals.append({"name": meal["name"], "status": meal.get("status", ""), "items": items})
+        meals.append(
+            {
+                "name": meal["name"],
+                "status": meal.get("status", ""),
+                "start": parse_time(meal.get("startTime")),
+                "end": parse_time(meal.get("endTime")),
+                "items": items,
+            }
+        )
     return {"court": court_name, "formal_name": formal_name, "meals": meals}
+
+
+def parse_time(value):
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+def current_meal(entries, now):
+    """Name of the meal being served at `now` at any location, else the
+    next one to start. None once every meal has ended."""
+    windows = sorted(
+        (meal["start"], meal["end"], meal["name"])
+        for entry in entries
+        for meal in entry["meals"]
+        if meal["start"] and meal["end"]
+    )
+    for start, end, name in windows:
+        if start <= now < end:
+            return name
+    for start, _, name in windows:
+        if start > now:
+            return name
+    return None
 
 
 def trait_markup(trait):
@@ -244,8 +280,9 @@ class DiningApp(App):
         ("a", "filter_all", "All meals"),
     ]
 
-    def __init__(self):
+    def __init__(self, auto_meal=True):
         super().__init__()
+        self.auto_meal = auto_meal
         self._date = date.today()
         self._loaded = False
         self._loaded_date = None
@@ -272,6 +309,17 @@ class DiningApp(App):
         await container.mount_all(panes)
         panes[0].focus()
         await self.load_menus()
+        if self.auto_meal:
+            self.select_current_meal()
+
+    def select_current_meal(self):
+        """Filter to the meal being served now (or next) today."""
+        if self._date != date.today():
+            return
+        entries = [p.entry for p in self.query(LocationPane) if p.entry is not None]
+        meal = current_meal(entries, datetime.now().astimezone())
+        if meal:
+            self.set_meal_filter(meal)
 
     async def load_menus(self) -> None:
         self._loaded = False

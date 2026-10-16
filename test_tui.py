@@ -11,7 +11,7 @@ menus to load, and asserts the panes render, then exercises date navigation.
 
 import asyncio
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import tui
 
@@ -24,8 +24,32 @@ async def wait_loaded(app, timeout=30):
         await asyncio.sleep(0.1)
 
 
+def test_current_meal():
+    def at(hour):
+        return datetime(2026, 10, 16, hour, tzinfo=timezone.utc)
+
+    def meal(name, start, end):
+        return {"name": name, "start": at(start), "end": at(end), "items": []}
+
+    entries = [
+        {"meals": [meal("Breakfast", 7, 10), meal("Lunch", 11, 14), meal("Dinner", 17, 21)]},
+        # Closed meals have no hours and are never picked.
+        {"meals": [{"name": "Brunch", "start": None, "end": None, "items": []}]},
+    ]
+    assert tui.current_meal(entries, at(8)) == "Breakfast"
+    assert tui.current_meal(entries, at(12)) == "Lunch"
+    assert tui.current_meal(entries, at(15)) == "Dinner", "between meals: next one"
+    assert tui.current_meal(entries, at(6)) == "Breakfast", "before opening: first meal"
+    assert tui.current_meal(entries, at(22)) is None, "after close: all meals"
+    assert tui.current_meal([], at(12)) is None
+    print("current_meal ok")
+
+
 async def main():
-    app = tui.DiningApp()
+    test_current_meal()
+
+    # The checks below assume the default all-meals view.
+    app = tui.DiningApp(auto_meal=False)
     async with app.run_test(size=(200, 50)) as pilot:
         # Locations fetch -> panes mount -> menus load.
         await wait_loaded(app)
@@ -186,6 +210,13 @@ async def main():
         panes = list(app.query(tui.LocationPane))
         container = app.query_one("#panes")
         assert container.scroll_x == 0
+
+        # Default app starts filtered to the current (or next) meal.
+        expected = tui.current_meal(
+            [p.entry for p in panes if p.entry], datetime.now().astimezone()
+        )
+        assert app.meal_filter == expected, f"expected {expected!r}, got {app.meal_filter!r}"
+        print(f"auto meal ok: {app.meal_filter or 'all meals'}")
         for _ in panes:
             await pilot.press("right")
         await pilot.pause(0.5)
