@@ -259,12 +259,43 @@ async def main():
         assert pane_content(panes[0]) == unfiltered, "clearing search should restore the menu"
         print("search cleared ok")
 
+        # c opens the court picker; unchecking a court hides its pane right away.
+        await pilot.press("c")
+        await pilot.pause()
+        assert isinstance(app.screen, tui.CourtPicker), "c should open the picker"
+        await pilot.press("n")
+        await pilot.pause()
+        assert app._date == date.today(), "main-view keys should do nothing in the picker"
+        selection = app.screen.query_one(tui.SelectionList)
+        selection.highlighted = 1
+        await pilot.press("space")
+        await pilot.pause()
+        assert not panes[1].display, "unchecked court should be hidden"
+        assert app.hidden_courts == {app.courts[1]}
+        print(f"hide court ok: {app.courts[1]}")
+
+        # Unchecking everything is refused: the previous selection comes back.
+        selection.deselect_all()
+        await pilot.pause()
+        assert app.hidden_courts == {app.courts[1]}, "at least one court must stay visible"
+        print("keep-one guard ok")
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, tui.CourtPicker), "Esc should close the picker"
+        assert app.focused is panes[0]
+        await pilot.press("right")
+        await pilot.pause()
+        assert app.focused is panes[2], "right should skip the hidden pane"
+        print("picker closed, navigation skips hidden ok")
+
     # At 80 columns most panes are off-screen; moving to the last one must
     # scroll it into view.
     app = tui.DiningApp()
     async with app.run_test(size=(80, 30)) as pilot:
         await wait_loaded(app)
         panes = list(app.query(tui.LocationPane))
+        assert all(p.display for p in panes), "every launch should show all courts"
         container = app.query_one("#panes")
         assert container.scroll_x == 0
 

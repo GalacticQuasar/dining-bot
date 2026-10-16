@@ -18,9 +18,10 @@ import httpx
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import HorizontalScroll, VerticalScroll
+from textual.containers import HorizontalScroll, Vertical, VerticalScroll
 from textual.content import Content
-from textual.widgets import Footer, Header, Input, LoadingIndicator, Static
+from textual.screen import ModalScreen
+from textual.widgets import Footer, Header, Input, LoadingIndicator, SelectionList, Static
 
 DINING_API_URL = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
 
@@ -283,6 +284,57 @@ class LocationPane(VerticalScroll):
         self.scroll_to(y=0, animate=False)
 
 
+class CourtPicker(ModalScreen):
+    """Checklist of locations; toggling one shows/hides its pane right away."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+        ("c", "dismiss", "Close"),
+    ]
+
+    CSS = """
+    CourtPicker {
+        align: center middle;
+    }
+    #picker {
+        width: 44;
+        height: auto;
+        border: tall $primary;
+        background: $surface;
+        padding: 0 1;
+    }
+    #picker SelectionList {
+        height: auto;
+        border: none;
+    }
+    """
+
+    def __init__(self, courts, hidden):
+        super().__init__()
+        self.courts = courts
+        self.hidden = set(hidden)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker") as picker:
+            picker.border_title = "Locations"
+            yield SelectionList(
+                *((court, court, court not in self.hidden) for court in self.courts)
+            )
+            yield Static("[dim]Space/Enter toggles \N{middle dot} Esc closes[/dim]")
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
+        selected = set(event.selection_list.selected)
+        if not selected:
+            # Keep at least one pane: put back the one just unchecked.
+            for court in self.courts:
+                if court not in self.hidden:
+                    event.selection_list.select(court)
+            self.app.notify("Keep at least one location", severity="warning")
+            return
+        self.hidden = set(self.courts) - selected
+        self.app.set_hidden_courts(self.hidden)
+
+
 class DiningApp(App):
     TITLE = "Purdue Dining"
 
@@ -318,6 +370,7 @@ class DiningApp(App):
         ("l", "filter_lunch", "Lunch"),
         ("d", "filter_dinner", "Dinner"),
         ("a", "filter_all", "All meals"),
+        ("c", "pick_courts", "Courts"),
         Binding("slash", "search", "Search", key_display="/"),
         # Priority so the screen's own escape binding doesn't swallow it.
         Binding("escape", "clear_search", "Clear search", show=False, priority=True),
@@ -326,6 +379,7 @@ class DiningApp(App):
     def __init__(self, auto_meal=True):
         super().__init__()
         self.auto_meal = auto_meal
+        self.hidden_courts = set()
         self._date = date.today()
         self._loaded = False
         self._loaded_date = None
@@ -333,12 +387,17 @@ class DiningApp(App):
         self.meal_filter = None
         self.search_query = ""
         self._search_return = None
+        self._search = None
         self.courts = []
+        # Kept as a list rather than queried: while a modal is open,
+        # App.query() searches the modal instead of the main screen.
+        self.panes = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield HorizontalScroll(id="panes")
-        yield Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
+        self._search = Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
+        yield self._search
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -351,9 +410,9 @@ class DiningApp(App):
                 Static(f"[red]Failed to load locations: {escape(str(exc))}[/red]")
             )
             return
-        panes = [LocationPane(court) for court in self.courts]
-        await container.mount_all(panes)
-        panes[0].focus()
+        self.panes = [LocationPane(court) for court in self.courts]
+        await container.mount_all(self.panes)
+        self.panes[0].focus()
         await self.load_menus()
         if self.auto_meal:
             self.select_current_meal()
@@ -362,7 +421,7 @@ class DiningApp(App):
         """Filter to the meal being served now (or next) today."""
         if self._date != date.today():
             return
-        entries = [p.entry for p in self.query(LocationPane) if p.entry is not None]
+        entries = [p.entry for p in self.panes if p.entry is not None]
         meal = current_meal(entries, datetime.now().astimezone())
         if meal:
             self.set_meal_filter(meal)
@@ -371,7 +430,7 @@ class DiningApp(App):
         self._loaded = False
         date_str = self._date.isoformat()
         self.update_sub_title()
-        panes = list(self.query(LocationPane))
+        panes = list(self.panes)
         for pane in panes:
             await pane.show_loading()
         async with httpx.AsyncClient(timeout=15) as client:
@@ -415,35 +474,38 @@ class DiningApp(App):
         self.refresh_panes()
 
     def refresh_panes(self):
-        for pane in self.query(LocationPane):
+        for pane in self.panes:
             if pane.entry is not None:
                 pane.call_after_refresh(pane.refresh_content)
 
     def action_search(self):
         if not self.courts:
             return
-        search = self.query_one("#search", Input)
+        search = self._search
         if isinstance(self.focused, LocationPane):
             self._search_return = self.focused
         search.add_class("visible")
         search.focus()
 
     def check_action(self, action, parameters):
+        # Main-view keys do nothing while a modal (the court picker) is open.
+        if isinstance(self.screen, ModalScreen):
+            return action in ("quit", "command_palette")
         # Only claim escape while the search bar is open.
         if action == "clear_search":
-            return self.query_one("#search", Input).has_class("visible")
+            return self._search is not None and self._search.has_class("visible")
         return True
 
     def action_clear_search(self):
-        search = self.query_one("#search", Input)
+        search = self._search
         search.value = ""
         search.remove_class("visible")
         self.return_from_search()
 
     def return_from_search(self):
         pane = self._search_return
-        if pane is None or not pane.is_attached:
-            panes = list(self.query(LocationPane))
+        if pane is None or not pane.display:
+            panes = self.visible_panes()
             pane = panes[0] if panes else None
         if pane is not None:
             pane.focus()
@@ -469,10 +531,31 @@ class DiningApp(App):
         self._date = new_date
         self.run_worker(self.load_menus(), exclusive=True)
 
+    def visible_panes(self):
+        return [p for p in self.panes if p.display]
+
+    def set_hidden_courts(self, hidden):
+        self.hidden_courts = set(hidden)
+        for pane in self.panes:
+            pane.display = pane.court_name not in self.hidden_courts
+
+    def action_pick_courts(self):
+        if not self.courts:
+            return
+        self.push_screen(CourtPicker(self.courts, self.hidden_courts), self.after_pick_courts)
+
+    def after_pick_courts(self, _result=None):
+        # The pane that had focus may have been hidden.
+        focused = self.screen.focused
+        if focused not in self.visible_panes():
+            visible = self.visible_panes()
+            if visible:
+                visible[0].focus()
+
     def action_focus_pane(self, step):
         """Focus the visible pane `step` places from the focused one,
         stopping at either end. Focusing scrolls the pane into view."""
-        panes = [p for p in self.query(LocationPane) if p.display]
+        panes = self.visible_panes()
         if not panes:
             return
         if self.focused not in panes:
@@ -494,7 +577,7 @@ class DiningApp(App):
         if not self.courts:
             return
         self.show_traits = not self.show_traits
-        for pane in self.query(LocationPane):
+        for pane in self.panes:
             if pane.entry is not None:
                 await pane.refresh_content()
 

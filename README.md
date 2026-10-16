@@ -85,12 +85,14 @@ Each pane scrolls independently; on narrow terminals the row of panes scrolls ho
 
 | Key | Action |
 |-----|--------|
-| `←` `→` | Scroll between locations |
+| `←` `→` | Move between locations |
 | `↑` `↓` / `PgUp` `PgDn` | Scroll the focused pane |
 | `n` / `p` | Next / previous day |
 | `t` | Today |
-| `b` / `l` / `d` | Show only breakfast / lunch / dinner |
+| `b` / `l` / `d` | Show only breakfast / lunch / dinner (starts on the meal being served now) |
 | `a` | Show all meals |
+| `/` | Search items (`Enter` keeps the search, `Esc` clears it) |
+| `c` | Choose which locations to show (until you quit) |
 | `v` | Toggle diet/allergen labels (off by default) |
 | `q` | Quit |
 
