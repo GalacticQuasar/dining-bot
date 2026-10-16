@@ -19,6 +19,7 @@ from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import HorizontalScroll, VerticalScroll
+from textual.content import Content
 from textual.widgets import Footer, Header, LoadingIndicator, Static
 
 DINING_API_URL = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
@@ -346,6 +347,20 @@ class DiningApp(App):
         weekday = self._date.strftime("%A")
         meal = self.meal_filter or "all meals"
         self.sub_title = f"{date_str} ({weekday}) \N{RIGHTWARDS DOUBLE ARROW} {meal}"
+
+    def format_title(self, title, sub_title):
+        """Like the default (dim subtitle), but the meal stands out in the
+        footer's key color."""
+        meal = self.meal_filter or "all meals"
+        if not sub_title.endswith(meal):
+            return super().format_title(title, sub_title)
+        prefix = sub_title[: -len(meal)]
+        return Content.assemble(
+            Content(title),
+            (" \N{EM DASH} ", "dim"),
+            Content(prefix).stylize("dim"),
+            (meal, "$footer-key-foreground"),
+        )
 
     def set_meal_filter(self, meal):
         if not self.courts or meal == self.meal_filter:
