@@ -20,7 +20,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import HorizontalScroll, VerticalScroll
 from textual.content import Content
-from textual.widgets import Footer, Header, LoadingIndicator, Static
+from textual.widgets import Footer, Header, Input, LoadingIndicator, Static
 
 DINING_API_URL = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
 
@@ -176,13 +176,39 @@ def filter_meals(meals, meal_filter):
     return [m for m in meals if m["name"].strip().lower() == target]
 
 
-def menu_markup(entry, show_traits=False, meal_filter=None):
+def highlight(text, query):
+    """Escape text for markup, marking every case-insensitive match of query."""
+    if not query:
+        return escape(text)
+    lowered, target = text.lower(), query.lower()
+    parts = []
+    start = 0
+    while (found := lowered.find(target, start)) != -1:
+        end = found + len(target)
+        parts.append(escape(text[start:found]))
+        parts.append(f"[bold reverse]{escape(text[found:end])}[/bold reverse]")
+        start = end
+    parts.append(escape(text[start:]))
+    return "".join(parts)
+
+
+def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
     all_meals = entry["meals"]
     if not all_meals:
         return "[dim italic]Closed or no menu for this date.[/dim italic]"
     meals = filter_meals(all_meals, meal_filter)
     if not meals:
         return f"[dim italic](no {escape(meal_filter)} served here)[/dim italic]"
+    query = query.strip()
+    if query:
+        target = query.lower()
+        meals = [
+            {**meal, "items": [it for it in meal["items"] if target in it["item"].lower()]}
+            for meal in meals
+        ]
+        meals = [meal for meal in meals if meal["items"]]
+        if not meals:
+            return f"[dim italic](no matches for {escape(query)!r})[/dim italic]"
     parts = []
     for meal in meals:
         status = meal["status"].strip().upper()
@@ -200,7 +226,7 @@ def menu_markup(entry, show_traits=False, meal_filter=None):
         for station, items in by_station.items():
             parts.append(f"[bold cyan]{escape(station)}[/bold cyan]")
             for item in items:
-                line = f"  \N{bullet} {escape(item['item'])}"
+                line = f"  \N{bullet} {highlight(item['item'], query)}"
                 if show_traits and item["traits"]:
                     tags = " ".join(trait_markup(t) for t in item["traits"])
                     line = f"{line} {tags}"
@@ -243,10 +269,17 @@ class LocationPane(VerticalScroll):
         await self.refresh_content()
 
     async def refresh_content(self):
-        await self.remove_children()
-        await self.mount(
-            Static(menu_markup(self.entry, self.app.show_traits, self.app.meal_filter))
+        markup = menu_markup(
+            self.entry, self.app.show_traits, self.app.meal_filter, self.app.search_query
         )
+        # Update in place when possible: overlapping remove/mount calls (e.g.
+        # one per search keystroke) could otherwise leave two Statics.
+        children = list(self.children)
+        if len(children) == 1 and isinstance(children[0], Static):
+            children[0].update(markup)
+        else:
+            await self.remove_children()
+            await self.mount(Static(markup))
         self.scroll_to(y=0, animate=False)
 
 
@@ -267,6 +300,12 @@ class DiningApp(App):
     LocationPane:focus {
         border: tall $secondary;
     }
+    #search {
+        display: none;
+    }
+    #search.visible {
+        display: block;
+    }
     """
 
     BINDINGS = [
@@ -279,6 +318,9 @@ class DiningApp(App):
         ("l", "filter_lunch", "Lunch"),
         ("d", "filter_dinner", "Dinner"),
         ("a", "filter_all", "All meals"),
+        Binding("slash", "search", "Search", key_display="/"),
+        # Priority so the screen's own escape binding doesn't swallow it.
+        Binding("escape", "clear_search", "Clear search", show=False, priority=True),
     ]
 
     def __init__(self, auto_meal=True):
@@ -289,11 +331,14 @@ class DiningApp(App):
         self._loaded_date = None
         self.show_traits = False
         self.meal_filter = None
+        self.search_query = ""
+        self._search_return = None
         self.courts = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield HorizontalScroll(id="panes")
+        yield Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -367,9 +412,54 @@ class DiningApp(App):
             return
         self.meal_filter = meal
         self.update_sub_title()
+        self.refresh_panes()
+
+    def refresh_panes(self):
         for pane in self.query(LocationPane):
             if pane.entry is not None:
                 pane.call_after_refresh(pane.refresh_content)
+
+    def action_search(self):
+        if not self.courts:
+            return
+        search = self.query_one("#search", Input)
+        if isinstance(self.focused, LocationPane):
+            self._search_return = self.focused
+        search.add_class("visible")
+        search.focus()
+
+    def check_action(self, action, parameters):
+        # Only claim escape while the search bar is open.
+        if action == "clear_search":
+            return self.query_one("#search", Input).has_class("visible")
+        return True
+
+    def action_clear_search(self):
+        search = self.query_one("#search", Input)
+        search.value = ""
+        search.remove_class("visible")
+        self.return_from_search()
+
+    def return_from_search(self):
+        pane = self._search_return
+        if pane is None or not pane.is_attached:
+            panes = list(self.query(LocationPane))
+            pane = panes[0] if panes else None
+        if pane is not None:
+            pane.focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search" or event.value == self.search_query:
+            return
+        self.search_query = event.value
+        self.refresh_panes()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "search":
+            return
+        if not event.value.strip():
+            event.input.remove_class("visible")
+        self.return_from_search()
 
     def change_date(self, new_date):
         if not self.courts:

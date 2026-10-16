@@ -202,6 +202,63 @@ async def main():
         assert app.focused is panes[-1], "right should stop at the last pane"
         print("pane navigation ok")
 
+        # Search: / opens the bar, typing narrows every pane, Enter keeps the
+        # search, Esc clears it.
+        await pilot.press("a")
+        await pilot.pause()
+        panes[0].focus()
+        await pilot.pause()
+        unfiltered = pane_content(panes[0])
+        # A real word from today's menu, so at least pane 0 has a match.
+        words = (
+            w
+            for meal in panes[0].entry["meals"]
+            for it in meal["items"]
+            for w in it["item"].split()
+            if w.isalpha() and len(w) >= 4
+        )
+        query = next(words).lower()
+        search = app.query_one("#search", tui.Input)
+        await pilot.press("slash")
+        await pilot.pause()
+        assert app.focused is search, "/ should focus the search bar"
+        loaded_date = app._loaded_date
+        await pilot.press(*query)
+        await pilot.pause()
+        assert app.search_query == query
+        assert app._loaded_date == loaded_date and app.meal_filter is None, (
+            "keys typed into search must not trigger app bindings"
+        )
+        for pane in panes:
+            assert len(pane.children) == 1, f"{pane.court_name!r} should hold one Static"
+            content = pane_content(pane)
+            if "no matches for" in content:
+                continue
+            items = [line for line in content.splitlines() if "\N{bullet} " in line and "OPEN" not in line]
+            assert items, f"{pane.court_name!r} shows no items and no notice"
+            for line in items:
+                plain = line.replace("[bold reverse]", "").replace("[/bold reverse]", "")
+                assert query in plain.lower(), f"non-matching item in {pane.court_name!r}: {line}"
+        assert "[bold reverse]" in pane_content(panes[0]), "matches should be highlighted"
+        print(f"search ok: {query!r}")
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.focused is panes[0], "Enter should return focus to the pane"
+        assert app.search_query == query and search.display, "Enter should keep the search"
+
+        await pilot.press("slash", "z", "z", "q", "x")
+        await pilot.pause()
+        assert "no matches for" in pane_content(panes[0])
+        print("no-match notice ok")
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.search_query == "" and not search.display, "Esc should clear and hide"
+        assert app.focused is panes[0], "Esc should return focus to the pane"
+        assert pane_content(panes[0]) == unfiltered, "clearing search should restore the menu"
+        print("search cleared ok")
+
     # At 80 columns most panes are off-screen; moving to the last one must
     # scroll it into view.
     app = tui.DiningApp()
