@@ -1,6 +1,6 @@
 # Dining Bot
 
-Purdue Dining Courts Bot — a CLI for Purdue's dining menus API plus an [Agent Skills](https://agentskills.io) skill that lets any AI agent answer dining questions.
+Purdue Dining Courts Bot: a CLI for Purdue's dining menus API plus an [Agent Skills](https://agentskills.io) skill that lets any AI agent answer dining questions.
 
 [![purdue-dining](https://skills.sh/b/GalacticQuasar/dining-bot?label=purdue-dining)](https://skills.sh/GalacticQuasar/dining-bot)
 
@@ -71,7 +71,7 @@ python3 .agents/skills/purdue-dining/scripts/menu.py menu --court all --date fri
 
 `--date` accepts `today` (default), `tomorrow`, `yesterday`, a weekday (`friday` = next occurrence), or `YYYY-MM-DD`. `--court` accepts a court name (`Ford`), `courts` (the 5 dining courts), or `all` (every location).
 
-There's also `script.py` — the original interactive CLI (pick a court and date from prompts).
+There's also `script.py`, the original interactive CLI (pick a court and date from prompts).
 
 ## TUI
 
@@ -113,7 +113,7 @@ Headless smoke test (no TTY needed): `uv run test_tui.py`
 
 ## Disclaimer
 
-Not affiliated with or endorsed by Purdue University. Menu data comes from Purdue's public dining API and may be incomplete or out of date — always confirm with [Purdue Dining](https://dining.purdue.edu/) if accuracy matters (allergens especially).
+Not affiliated with or endorsed by Purdue University. Menu data comes from Purdue's public dining API and may be incomplete or out of date. Always confirm with [Purdue Dining](https://dining.purdue.edu/) if accuracy matters (allergens especially).
 
 ## License
 
