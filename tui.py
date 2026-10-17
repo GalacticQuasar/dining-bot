@@ -413,6 +413,10 @@ class DiningApp(App):
         self.panes = [LocationPane(court) for court in self.courts]
         await container.mount_all(self.panes)
         self.panes[0].focus()
+        # In a worker so keys work while menus load; a date change cancels it.
+        self.run_worker(self.initial_load(), exclusive=True)
+
+    async def initial_load(self):
         await self.load_menus()
         if self.auto_meal:
             self.select_current_meal()
