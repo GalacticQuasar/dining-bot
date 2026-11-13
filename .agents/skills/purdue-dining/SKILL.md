@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires Python 3.8+ and network access to api.hfs.purdue.edu. Uses uv (or system python3 with requests installed) to run the bundled script.
 metadata:
   author: GalacticQuasar
-  version: "1.2"
+  version: "1.3"
 ---
 
 # Purdue Dining Courts
@@ -18,7 +18,7 @@ Answer dining questions by running the bundled CLI script. Do not call the API a
 
 ## CLI reference
 
-Run with the skill directory as the working directory, or use absolute paths. All output goes to stdout; warnings go to stderr. Exit code is 0 even when nothing is found.
+Run with the skill directory as the working directory, or use absolute paths. Results go to stdout; warnings go to stderr as `note:` lines. With `--json`, warnings are not printed to stderr; they appear in the JSON's `warnings` list instead (for both `menu` and `search`). Exit code is 0 even when nothing is found; only request failures and bad arguments exit 1.
 
 Preferred (self-contained, auto-installs `requests` via inline PEP 723 metadata):
 
@@ -81,7 +81,7 @@ python3 scripts/menu.py search "pad thai" --court all --date tuesday
 ## Conventions
 
 - When the user doesn't specify a date, use `today`; no meal, use their stated meal; no court, use `courts` (or `all` for food searches).
-- If a court is closed or has no menu, the CLI prints a note on stderr. Relay that naturally ("Windsor is closed today").
+- If a court is closed or has no menu, or the meal matches nothing, the CLI prints a `note:` on stderr (or adds it to `warnings` with `--json`). Relay that naturally ("Windsor is closed today"). An empty search result may be explained by a note, so check before saying a food isn't served.
 - Search is a case-insensitive substring match on item names. Keep queries short (`"chicken"`, not `"spicy chicken sandwich"`). Try related terms (`"pizza"`, `"pasta"`, `"burger"`) if the first finds nothing.
 - Prefer `search` when the user names a food, `menu` when they name a court.
 - The date is resolved to an ISO string shown in the output header. If the user asked for "Friday", confirm the output date matches their intent.

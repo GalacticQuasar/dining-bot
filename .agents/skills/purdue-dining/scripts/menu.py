@@ -282,18 +282,24 @@ def print_menu(menus, date_str, as_json, warnings, meal_filter=None):
                 for it in items:
                     trait_str = f" ({', '.join(it['traits'])})" if it["traits"] else ""
                     print(f"    - {it['item']}{trait_str}")
-    for warning in warnings:
-        print(f"\nnote: {warning}", file=sys.stderr)
 
 
-def print_search(matches, query_text, date_str, as_json):
+def print_search(matches, query_text, date_str, as_json, warnings):
     if as_json:
         print(
             json.dumps(
-                {"date": date_str, "query": query_text, "matches": matches}, indent=2
+                {
+                    "date": date_str,
+                    "query": query_text,
+                    "matches": matches,
+                    "warnings": warnings,
+                },
+                indent=2,
             )
         )
         return
+    for warning in warnings:
+        print(f"note: {warning}", file=sys.stderr)
     print(f"=== Matches for {query_text!r} on {date_str} ===")
     if not matches:
         print("No matching items found.")
@@ -357,7 +363,7 @@ def main():
         print_menu(menus, date_str, args.json, warnings, getattr(args, "meal", None))
     elif args.command == "search":
         matches = search_items(menus, args.query)
-        print_search(matches, args.query, date_str, args.json)
+        print_search(matches, args.query, date_str, args.json, warnings)
 
 
 if __name__ == "__main__":
