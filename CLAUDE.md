@@ -29,8 +29,9 @@ The test runs the app twice. The first run uses `DiningApp(auto_meal=False)` bec
 
 Three separate clients call the same API. Each one carries its own copy of the `getStartLocations` and `getLocationMenu` GraphQL queries, and nothing is shared between them:
 
-- **`.agents/skills/purdue-dining/scripts/menu.py`**: the non-interactive CLI the skill runs (sync `requests`, courts fetched one after another). It has to stay self-contained because users install the skill folder by itself (`npx skills add`, or by copying the directory), so it must not import anything from the rest of the repo. Its output contract, which `SKILL.md` documents for agents: results go to stdout, `note:` warnings go to stderr, and the exit code is 0 even when nothing matched. Only request failures and bad arguments exit 1.
+- **`.agents/skills/purdue-dining/scripts/menu.py`**: the non-interactive CLI the skill runs (sync `requests`, courts fetched one after another). It has to stay self-contained because users install the skill folder by itself (`npx skills add`, or by copying the directory), so it must not import anything from the rest of the repo. Its output contract, which `SKILL.md` documents for agents: results go to stdout, `note:` warnings go to stderr (with `--json` they go in the output's `warnings` list instead, for both `menu` and `search`), and the exit code is 0 even when nothing matched. Only request failures and bad arguments exit 1.
 - **`tui.py`**: the Textual app (async `httpx`, all location menus fetched in parallel with `asyncio.gather`). Locations come from the API: every court in the `"Dining Courts"` category, plus the first location whose name contains "1bowl", pinned last. More detail below.
+- **`script.py`**: the original interactive prompt-driven CLI, kept as a legacy tool.
 
 ### TUI internals
 
@@ -41,7 +42,6 @@ Three separate clients call the same API. Each one carries its own copy of the `
 - **Navigation and search.** `LocationPane` binds `←`/`→` to `app.focus_pane`, replacing `VerticalScroll`'s horizontal scroll keys. Navigation skips hidden panes. `/` shows the `#search` `Input` (kept as `app._search`), which matches item names only and ignores case.
 - **Meal on startup.** Once today's menus load, `current_meal()` sets `meal_filter` to the meal being served now, or the next one to start, using each meal's `startTime`/`endTime`. It leaves the filter alone after the last meal ends. This happens only at startup, and not at all if the date changes before the first load finishes.
 - **Header.** `format_title` is overridden so the meal name in the subtitle uses `$footer-key-foreground`, the same color as the footer keys.
-- **`script.py`**: the original interactive prompt-driven CLI, kept as a legacy tool.
 
 `menu.py` and `tui.py` flatten API responses into the same shape, `{court, formal_name, meals: [{name, status, items: [{station, item, traits}]}]}`. The TUI also queries `startTime`/`endTime` and adds `start`/`end` to each meal. These are timezone-aware `datetime`s, or `None` when a meal has no hours (closed meals). A change to how the API is queried or flattened usually has to be made in more than one file.
 

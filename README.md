@@ -107,8 +107,8 @@ Headless smoke test (no TTY needed): `uv run test_tui.py`
 
 ## Requirements
 
-- Python 3.8+
-- [`uv`](https://docs.astral.sh/uv/) (recommended) or `requests` installed
+- Python 3.8+ for the CLI, 3.9+ for the TUI
+- [`uv`](https://docs.astral.sh/uv/) (recommended; installs dependencies automatically), or install them yourself: `requests` for the CLI, `textual` and `httpx` for the TUI
 - Network access to `api.hfs.purdue.edu`
 
 ## Disclaimer
