@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -27,6 +28,8 @@ from textual.content import Content
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, LoadingIndicator, SelectionList, Static
 
+# Loaded menus are reused for this long before being fetched again.
+MENU_CACHE_SECONDS = 30 * 60
 PANE_MIN_WIDTH = 38
 COLLAPSED_WIDTH = 18
 
@@ -572,6 +575,8 @@ class DiningApp(App):
         self._date = date.today()
         self._loaded = False
         self._loaded_date = None
+        # (date, court) -> (time.monotonic() when fetched, entry)
+        self._menus = {}
         self.show_traits = False
         self.diet_filter = None
         self.meal_filter = None
@@ -626,25 +631,58 @@ class DiningApp(App):
         if meal:
             self.set_meal_filter(meal)
 
+    def cached_menu(self, date_str, court):
+        hit = self._menus.get((date_str, court))
+        if hit and time.monotonic() - hit[0] < MENU_CACHE_SECONDS:
+            return hit[1]
+        return None
+
+    async def fetch_menus(self, date_str, courts):
+        """{court: entry or exception} for `courts`, caching what loads."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            results = await asyncio.gather(
+                *(fetch_menu(client, court, date_str) for court in courts),
+                return_exceptions=True,
+            )
+        for court, result in zip(courts, results):
+            if not isinstance(result, BaseException):
+                self._menus[(date_str, court)] = (time.monotonic(), result)
+        return dict(zip(courts, results))
+
     async def load_menus(self) -> None:
         self._loaded = False
         date_str = self._date.isoformat()
         self.update_sub_title()
         panes = list(self.panes)
+        # Days already seen (or prefetched) show at once; only the rest load.
+        missing = []
         for pane in panes:
-            await pane.show_loading()
-        async with httpx.AsyncClient(timeout=15) as client:
-            results = await asyncio.gather(
-                *(fetch_menu(client, pane.court_name, date_str) for pane in panes),
-                return_exceptions=True,
-            )
-        for pane, result in zip(panes, results):
-            if isinstance(result, BaseException):
-                await pane.show_error(result)
+            entry = self.cached_menu(date_str, pane.court_name)
+            if entry is not None:
+                await pane.show_menu(entry)
             else:
-                await pane.show_menu(result)
+                missing.append(pane)
+                await pane.show_loading()
+        if missing:
+            results = await self.fetch_menus(date_str, [p.court_name for p in missing])
+            for pane in missing:
+                result = results[pane.court_name]
+                if isinstance(result, BaseException):
+                    await pane.show_error(result)
+                else:
+                    await pane.show_menu(result)
         self._loaded = True
         self._loaded_date = date_str
+        # Most date changes are "next day", so have it ready.
+        self.run_worker(
+            self.prefetch(self._date + timedelta(days=1)), group="prefetch", exclusive=True
+        )
+
+    async def prefetch(self, day):
+        date_str = day.isoformat()
+        courts = [c for c in self.courts if self.cached_menu(date_str, c) is None]
+        if courts:
+            await self.fetch_menus(date_str, courts)
 
     def update_sub_title(self):
         date_str = self._date.isoformat()
@@ -739,6 +777,8 @@ class DiningApp(App):
         if new_date == self._date and self._loaded:
             return
         self._date = new_date
+        # Cleared here, not just in the worker, so nothing sees the old day as loaded.
+        self._loaded = False
         self.run_worker(self.load_menus(), exclusive=True)
 
     def size_panes(self):

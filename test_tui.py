@@ -82,9 +82,18 @@ async def main():
         assert with_menu >= 1, "no pane rendered an actual menu"
         print(f"panes with menus: {with_menu}/6")
 
-        # Date navigation: n -> tomorrow.
+        # Date navigation: n -> tomorrow, which is prefetched after today
+        # loads, so it shows without a loading indicator.
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        deadline = asyncio.get_event_loop().time() + 30
+        while not all((tomorrow, c) in app._menus for c in app.courts):
+            assert asyncio.get_event_loop().time() < deadline, "tomorrow was not prefetched"
+            await asyncio.sleep(0.1)
         await pilot.press("n")
+        await pilot.pause()
+        assert not any(
+            isinstance(c, tui.LoadingIndicator) for p in panes for c in p.children
+        ), "a prefetched day should show without loading"
         await wait_loaded(app)
         assert app._loaded_date == tomorrow, f"expected {tomorrow}, got {app._loaded_date}"
         print(f"next day ok: {app._loaded_date}")
