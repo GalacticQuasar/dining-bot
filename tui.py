@@ -647,7 +647,7 @@ class DiningApp(App):
         yield self._search
         self._legend = Static(legend_markup(self.palette), id="legend")
         yield self._legend
-        yield Footer()
+        yield Footer(compact=True)
 
     def theme_palette(self):
         """DEFAULT_PALETTE with the current theme's colors, where it gives
