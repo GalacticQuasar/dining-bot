@@ -81,7 +81,7 @@ There's also `script.py`, the original interactive CLI (pick a court and date fr
 uv run tui.py
 ```
 
-Each pane scrolls independently; on narrow terminals the row of panes scrolls horizontally.
+Each pane scrolls independently. Panes share the window's width, locations with nothing to show (closed, or not serving the chosen meal) shrink to a narrow strip, and on narrow terminals the row of panes scrolls horizontally. Each meal shows its hours and, for today, how long until it opens or closes. Days you've viewed, plus the next day, are kept in memory, so switching between them is instant. The default theme is black and gold; `ctrl+p` can switch it for the session.
 
 | Key | Action |
 |-----|--------|
@@ -89,11 +89,13 @@ Each pane scrolls independently; on narrow terminals the row of panes scrolls ho
 | `↑` `↓` / `PgUp` `PgDn` | Scroll the focused pane |
 | `n` / `p` | Next / previous day |
 | `t` | Today |
-| `b` / `l` / `d` | Show only breakfast / lunch / dinner (starts on the meal being served now) |
-| `a` | Show all meals |
+| `m` / `M` | Next / previous meal served that day, then all meals (starts on the meal being served now) |
+| `b` / `l` / `d` / `a` | Breakfast / lunch / dinner / all meals |
+| `f` | Vegetarian only, vegan only, off |
 | `/` | Search items (`Enter` keeps the search, `Esc` clears it) |
 | `c` | Choose which locations to show (until you quit) |
-| `v` | Toggle diet/allergen labels (off by default) |
+| `v` | Toggle diet/allergen labels (off by default; a legend explains the codes) |
+| `?` | Show or hide every key |
 | `q` | Quit |
 
 Headless smoke test (no TTY needed): `uv run test_tui.py`
