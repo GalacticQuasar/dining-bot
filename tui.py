@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 import time
 from datetime import date, datetime, timedelta
 
 import httpx
 from rich.console import Group
 from rich.markup import escape
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -26,10 +28,39 @@ from textual.binding import Binding
 from textual.containers import HorizontalScroll, Vertical, VerticalScroll
 from textual.content import Content
 from textual.screen import ModalScreen
+from textual.theme import Theme
 from textual.widgets import Footer, Header, Input, LoadingIndicator, SelectionList, Static
 
 # Loaded menus are reused for this long before being fetched again.
 MENU_CACHE_SECONDS = 30 * 60
+# Purdue's black and gold; the default theme (ctrl+p switches for the session).
+OLD_GOLD = Theme(
+    name="old-gold",
+    primary="#CFB991",
+    secondary="#8E6F3E",
+    accent="#DAAA00",
+    warning="#DDB945",
+    error="#E06C5A",
+    success="#8FBF6A",
+    foreground="#ECE8E1",
+    background="#0E0E0E",
+    surface="#161616",
+    panel="#24221E",
+    dark=True,
+)
+
+# Rich styles for menu markup. The app swaps in its theme's colors; these
+# are the fallbacks.
+DEFAULT_PALETTE = {
+    "meal": "bold",
+    "station": "bold cyan",
+    "rule": "dim",
+    "open": "green",
+    "soon": "yellow",
+    "vegan": "bold green",
+    "vegetarian": "bold yellow",
+}
+
 PANE_MIN_WIDTH = 38
 COLLAPSED_WIDTH = 18
 
@@ -181,7 +212,7 @@ def duration(delta):
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
-def meal_status_markup(meal, now=None):
+def meal_status_markup(meal, now=None, palette=DEFAULT_PALETTE):
     """The line under a meal's name: its hours, plus where `now` falls in them
     when the meal is today. Meals without hours fall back to the API status."""
     start, end = meal.get("start"), meal.get("end")
@@ -192,11 +223,11 @@ def meal_status_markup(meal, now=None):
     if now is None or start.date() != now.astimezone(start.tzinfo).date():
         return f"[dim]{hours}[/dim]"
     if now < start:
-        return f"[dim]{hours} \N{MIDDLE DOT}[/dim] [yellow]opens in {duration(start - now)}[/yellow]"
+        return f"[dim]{hours} \N{MIDDLE DOT}[/dim] [{palette['soon']}]opens in {duration(start - now)}[/]"
     if now < end:
         return (
-            f"[green]\N{BLACK CIRCLE} {hours}[/green] [dim]\N{MIDDLE DOT}[/dim] "
-            f"[green]closes in {duration(end - now)}[/green]"
+            f"[{palette['open']}]\N{BLACK CIRCLE} {hours}[/] [dim]\N{MIDDLE DOT}[/dim] "
+            f"[{palette['open']}]closes in {duration(end - now)}[/]"
         )
     return f"[dim]ended {clock(end)}[/dim]"
 
@@ -227,13 +258,13 @@ def is_vegetarian(traits):
     return any(t.lower() in ("vegan", "vegetarian") for t in traits)
 
 
-def traits_markup(traits):
+def traits_markup(traits, palette=DEFAULT_PALETTE):
     """Compact labels: a colored VG/V mark, then dim allergen codes."""
     tags = []
     if is_vegan(traits):
-        tags.append("[bold green]VG[/bold green]")
+        tags.append(f"[{palette['vegan']}]VG[/]")
     elif is_vegetarian(traits):
-        tags.append("[bold yellow]V[/bold yellow]")
+        tags.append(f"[{palette['vegetarian']}]V[/]")
     codes = [
         ALLERGENS.get(t, escape(t))
         for t in traits
@@ -244,11 +275,11 @@ def traits_markup(traits):
     return " ".join(tags)
 
 
-def legend_markup():
+def legend_markup(palette=DEFAULT_PALETTE):
     codes = "  ".join(f"{code} [dim]{name.lower()}[/dim]" for name, code in ALLERGENS.items())
     return (
-        "[bold green]VG[/bold green] [dim]vegan[/dim]  "
-        "[bold yellow]V[/bold yellow] [dim]vegetarian[/dim]  "
+        f"[{palette['vegan']}]VG[/] [dim]vegan[/dim]  "
+        f"[{palette['vegetarian']}]V[/] [dim]vegetarian[/dim]  "
         f"[dim]\N{BOX DRAWINGS LIGHT VERTICAL} contains:[/dim] {codes}"
     )
 
@@ -310,6 +341,8 @@ def highlight(text, query):
 
 
 ITEM_PREFIX = "  \N{bullet} "
+# A markup line starting with this is a horizontal rule; the rest is its style.
+RULE_MARK = "\x1e"
 
 
 def markup_renderable(markup):
@@ -320,7 +353,10 @@ def markup_renderable(markup):
     for line in markup.split("\n"):
         if not line.startswith(ITEM_PREFIX):
             grid = None
-            parts.append(Text.from_markup(line))
+            if line.startswith(RULE_MARK):
+                parts.append(Rule(style=line[len(RULE_MARK):]))
+            else:
+                parts.append(Text.from_markup(line))
             continue
         if grid is None:
             grid = Table.grid(padding=(0, 1), expand=True)
@@ -335,7 +371,10 @@ def notice(text):
     return f"[dim italic]{text}[/dim italic]"
 
 
-def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None, diet=None):
+def menu_markup(
+    entry, show_traits=False, meal_filter=None, query="", now=None, diet=None,
+    palette=DEFAULT_PALETTE,
+):
     """Markup for one location's menu, plus whether it has no items to show
     (closed, meal not served, or nothing matches), so the pane can collapse."""
     all_meals = entry["meals"]
@@ -363,19 +402,20 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None, 
             return notice(f"(no matches for {escape(query)!r})"), True
     parts = []
     for meal in meals:
-        parts.append(f"[bold]{escape(meal['name'])}[/bold]")
-        status = meal_status_markup(meal, now)
+        parts.append(f"[{palette['meal']}]{escape(meal['name'])}[/]")
+        status = meal_status_markup(meal, now, palette)
         if status:
             parts.append(status)
+        parts.append(RULE_MARK + palette["rule"])
         by_station = {}
         for item in meal["items"]:
             by_station.setdefault(item["station"], []).append(item)
         for station, items in by_station.items():
-            parts.append(f"[bold cyan]{escape(station)}[/bold cyan]")
+            parts.append(f"[{palette['station']}]{escape(station)}[/]")
             for item in items:
                 line = f"{ITEM_PREFIX}{highlight(item['item'], query)}"
                 if show_traits and item["traits"]:
-                    line = f"{line}  {traits_markup(item['traits'])}"
+                    line = f"{line}  {traits_markup(item['traits'], palette)}"
                 parts.append(line)
             parts.append("")
         parts.append("")
@@ -433,6 +473,7 @@ class LocationPane(VerticalScroll):
             self.app.search_query,
             now=datetime.now().astimezone(),
             diet=self.app.diet_filter,
+            palette=self.app.palette,
         )
         # Nothing to show: shrink to a narrow strip so menus get the room.
         if self.has_class("collapsed") != empty:
@@ -520,15 +561,22 @@ class DiningApp(App):
     }
     LocationPane {
         height: 1fr;
-        border: tall $primary;
+        border: tall $primary 35%;
+        border-title-color: $text-muted;
         padding: 0 1;
         background: $surface;
     }
     LocationPane:focus {
-        border: tall $secondary;
+        border: tall $accent;
+        border-title-color: $accent;
+        border-title-style: bold;
     }
     LocationPane.collapsed {
         color: $text-muted;
+        border: tall $primary 15%;
+    }
+    LocationPane.collapsed:focus {
+        border: tall $accent;
     }
     #search {
         display: none;
@@ -584,6 +632,9 @@ class DiningApp(App):
         self._search_return = None
         self._search = None
         self._legend = None
+        self.register_theme(OLD_GOLD)
+        self.theme = OLD_GOLD.name
+        self.palette = self.theme_palette()
         self.courts = []
         # Kept as a list rather than queried: while a modal is open,
         # App.query() searches the modal instead of the main screen.
@@ -594,11 +645,36 @@ class DiningApp(App):
         yield PaneRow(id="panes")
         self._search = Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
         yield self._search
-        self._legend = Static(legend_markup(), id="legend")
+        self._legend = Static(legend_markup(self.palette), id="legend")
         yield self._legend
         yield Footer()
 
+    def theme_palette(self):
+        """DEFAULT_PALETTE with the current theme's colors, where it gives
+        plain hex values (Rich can't read Textual's 'auto 60%' and the like)."""
+        variables = self.get_css_variables()
+
+        def color(name, fallback):
+            value = variables.get(name, "")
+            return value if re.fullmatch(r"#[0-9a-fA-F]{6}", value) else fallback
+
+        return {
+            "meal": f"bold {color('foreground', 'default')}",
+            "station": f"bold {color('primary', 'cyan')}",
+            "rule": f"{color('primary', 'default')} dim",
+            "open": color("success", "green"),
+            "soon": color("warning", "yellow"),
+            "vegan": f"bold {color('success', 'green')}",
+            "vegetarian": f"bold {color('warning', 'yellow')}",
+        }
+
+    def on_theme_change(self, _theme) -> None:
+        self.palette = self.theme_palette()
+        self._legend.update(legend_markup(self.palette))
+        self.refresh_panes(reset_scroll=False)
+
     async def on_mount(self) -> None:
+        self.theme_changed_signal.subscribe(self, self.on_theme_change)
         container = self.query_one("#panes", HorizontalScroll)
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -721,10 +797,10 @@ class DiningApp(App):
             if pane.entry is not None:
                 pane.call_after_refresh(pane.refresh_content, False)
 
-    def refresh_panes(self):
+    def refresh_panes(self, reset_scroll=True):
         for pane in self.panes:
             if pane.entry is not None:
-                pane.call_after_refresh(pane.refresh_content)
+                pane.call_after_refresh(pane.refresh_content, reset_scroll)
 
     def action_search(self):
         if not self.courts:

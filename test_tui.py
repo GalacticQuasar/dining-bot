@@ -113,7 +113,7 @@ async def main():
             for it in meal["items"]
         )
         assert any_traits, "API returned no traits at all; toggle test would be vacuous"
-        tags = ("[bold green]VG[/bold green]", "[bold yellow]V[/bold yellow]")
+        tags = (f"[{app.palette['vegan']}]VG[/]", f"[{app.palette['vegetarian']}]V[/]")
         legend = app.query_one("#legend")
         before = panes[0].markup
         assert app.show_traits is False
