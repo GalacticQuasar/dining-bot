@@ -104,18 +104,20 @@ async def main():
             for it in meal["items"]
         )
         assert any_traits, "API returned no traits at all; toggle test would be vacuous"
+        tags = ("[bold green]VG[/bold green]", "[bold yellow]V[/bold yellow]")
+        legend = app.query_one("#legend")
         before = panes[0].markup
         assert app.show_traits is False
-        assert "[vegan]" not in before and "[vegetarian]" not in before, (
-            "traits should be hidden by default"
-        )
+        assert not any(tag in before for tag in tags), "traits should be hidden by default"
+        assert not legend.display, "legend should be hidden by default"
         await pilot.press("v")
         await pilot.pause()
         assert app.show_traits is True
         after = panes[0].markup
-        assert any(tag in after for tag in ("[vegan]", "[vegetarian]", "[dim][")), (
+        assert any(tag in after for tag in tags) or "[dim]" in after.replace(before, ""), (
             "traits should be visible after toggle"
         )
+        assert legend.display, "legend should show with the labels"
         print(f"toggle on ok: {len(before)} -> {len(after)} chars in pane 0")
         assert len(after) > len(before), "showing traits should add characters"
 
@@ -123,8 +125,38 @@ async def main():
         await pilot.press("v")
         await pilot.pause()
         assert app.show_traits is False
+        assert not legend.display
         assert panes[0].markup == before, "toggle off should restore content"
         print("toggle off ok")
+
+        # f cycles the diet filter: vegetarian, vegan, then off. Every item
+        # left on screen must carry the matching trait.
+        def shown_items(pane):
+            return [
+                line[len(tui.ITEM_PREFIX):]
+                for line in pane.markup.splitlines()
+                if line.startswith(tui.ITEM_PREFIX)
+            ]
+
+        for diet, keep in (("vegetarian", tui.is_vegetarian), ("vegan", tui.is_vegan)):
+            await pilot.press("f")
+            await pilot.pause()
+            assert app.diet_filter == diet, f"expected {diet}, got {app.diet_filter}"
+            for pane in panes:
+                if not pane.entry:
+                    continue
+                allowed = {
+                    tui.escape(it["item"])
+                    for meal in pane.entry["meals"]
+                    for it in meal["items"]
+                    if keep(it["traits"])
+                }
+                for name in shown_items(pane):
+                    assert name in allowed, f"{name!r} in {pane.court_name!r} is not {diet}"
+            print(f"{diet} filter ok")
+        await pilot.press("f")
+        await pilot.pause()
+        assert app.diet_filter is None and panes[0].markup == before, "third f clears the filter"
 
         # Meal filtering: b/l/d narrow panes to one meal, a restores.
         def pane_content(pane):
@@ -232,7 +264,7 @@ async def main():
         for pane in panes:
             assert len(pane.children) == 1, f"{pane.court_name!r} should hold one Static"
             content = pane_content(pane)
-            if "no matches for" in content:
+            if pane.has_class("collapsed"):  # closed, or no matches
                 continue
             items = [line for line in content.splitlines() if line.startswith(tui.ITEM_PREFIX)]
             assert items, f"{pane.court_name!r} shows no items and no notice"

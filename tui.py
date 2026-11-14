@@ -198,13 +198,65 @@ def meal_status_markup(meal, now=None):
     return f"[dim]ended {clock(end)}[/dim]"
 
 
-def trait_markup(trait):
-    lowered = trait.lower()
-    if lowered == "vegan":
-        return r"[green]\[vegan][/green]"
-    if lowered == "vegetarian":
-        return r"[yellow]\[vegetarian][/yellow]"
-    return rf"[dim]\[{escape(trait)}][/dim]"
+# Allergen traits say what an item *contains*. Two letters each keeps a
+# fully labelled item on one or two lines; the legend spells them out.
+ALLERGENS = {
+    "Gluten": "Gl",
+    "Wheat": "Wh",
+    "Milk": "Mi",
+    "Eggs": "Eg",
+    "Soy": "So",
+    "Sesame": "Se",
+    "Peanuts": "Pn",
+    "Tree Nuts": "TN",
+    "Fish": "Fi",
+    "Shellfish": "Sh",
+    "Coconut": "Co",
+}
+DIET_FILTERS = (None, "vegetarian", "vegan")
+
+
+def is_vegan(traits):
+    return any(t.lower() == "vegan" for t in traits)
+
+
+def is_vegetarian(traits):
+    return any(t.lower() in ("vegan", "vegetarian") for t in traits)
+
+
+def traits_markup(traits):
+    """Compact labels: a colored VG/V mark, then dim allergen codes."""
+    tags = []
+    if is_vegan(traits):
+        tags.append("[bold green]VG[/bold green]")
+    elif is_vegetarian(traits):
+        tags.append("[bold yellow]V[/bold yellow]")
+    codes = [
+        ALLERGENS.get(t, escape(t))
+        for t in traits
+        if t.lower() not in ("vegan", "vegetarian")
+    ]
+    if codes:
+        tags.append(f"[dim]{' '.join(codes)}[/dim]")
+    return " ".join(tags)
+
+
+def legend_markup():
+    codes = "  ".join(f"{code} [dim]{name.lower()}[/dim]" for name, code in ALLERGENS.items())
+    return (
+        "[bold green]VG[/bold green] [dim]vegan[/dim]  "
+        "[bold yellow]V[/bold yellow] [dim]vegetarian[/dim]  "
+        f"[dim]\N{BOX DRAWINGS LIGHT VERTICAL} contains:[/dim] {codes}"
+    )
+
+
+def filter_diet(meals, diet):
+    """Keep only vegan (or vegetarian, which includes vegan) items."""
+    if not diet:
+        return meals
+    keep = is_vegan if diet == "vegan" else is_vegetarian
+    meals = [{**m, "items": [it for it in m["items"] if keep(it["traits"])]} for m in meals]
+    return [m for m in meals if m["items"]]
 
 
 def filter_meals(meals, meal_filter):
@@ -258,7 +310,7 @@ def notice(text):
     return f"[dim italic]{text}[/dim italic]"
 
 
-def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None):
+def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None, diet=None):
     """Markup for one location's menu, plus whether it has no items to show
     (closed, meal not served, or nothing matches), so the pane can collapse."""
     all_meals = entry["meals"]
@@ -267,6 +319,13 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None):
     meals = filter_meals(all_meals, meal_filter)
     if not meals:
         return notice(f"(no {escape(meal_filter)} served here)"), True
+    if not any(meal["items"] for meal in meals):
+        if meal_filter:
+            return notice(f"({escape(meal_filter)} closed)"), True
+        return notice("(closed all day)"), True
+    meals = filter_diet(meals, diet)
+    if not meals:
+        return notice(f"(nothing {diet} here)"), True
     query = query.strip()
     if query:
         target = query.lower()
@@ -277,10 +336,6 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None):
         meals = [meal for meal in meals if meal["items"]]
         if not meals:
             return notice(f"(no matches for {escape(query)!r})"), True
-    if not any(meal["items"] for meal in meals):
-        if meal_filter:
-            return notice(f"({escape(meal_filter)} closed)"), True
-        return notice("(closed all day)"), True
     parts = []
     for meal in meals:
         parts.append(f"[bold]{escape(meal['name'])}[/bold]")
@@ -295,8 +350,7 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None):
             for item in items:
                 line = f"{ITEM_PREFIX}{highlight(item['item'], query)}"
                 if show_traits and item["traits"]:
-                    tags = " ".join(trait_markup(t) for t in item["traits"])
-                    line = f"{line} {tags}"
+                    line = f"{line}  {traits_markup(item['traits'])}"
                 parts.append(line)
             parts.append("")
         parts.append("")
@@ -349,6 +403,7 @@ class LocationPane(VerticalScroll):
             self.app.meal_filter,
             self.app.search_query,
             now=datetime.now().astimezone(),
+            diet=self.app.diet_filter,
         )
         # Nothing to show: shrink to a narrow strip so menus get the room.
         if self.has_class("collapsed") != empty:
@@ -444,6 +499,15 @@ class DiningApp(App):
     #search.visible {
         display: block;
     }
+    #legend {
+        display: none;
+        height: auto;
+        padding: 0 1;
+        background: $panel;
+    }
+    #legend.visible {
+        display: block;
+    }
     """
 
     BINDINGS = [
@@ -452,6 +516,7 @@ class DiningApp(App):
         ("n", "next_day", "Next day"),
         ("p", "previous_day", "Prev day"),
         ("v", "toggle_traits", "Diet labels"),
+        ("f", "cycle_diet", "Veg filter"),
         ("b", "filter_breakfast", "Breakfast"),
         ("l", "filter_lunch", "Lunch"),
         ("d", "filter_dinner", "Dinner"),
@@ -470,10 +535,12 @@ class DiningApp(App):
         self._loaded = False
         self._loaded_date = None
         self.show_traits = False
+        self.diet_filter = None
         self.meal_filter = None
         self.search_query = ""
         self._search_return = None
         self._search = None
+        self._legend = None
         self.courts = []
         # Kept as a list rather than queried: while a modal is open,
         # App.query() searches the modal instead of the main screen.
@@ -484,6 +551,8 @@ class DiningApp(App):
         yield HorizontalScroll(id="panes")
         self._search = Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
         yield self._search
+        self._legend = Static(legend_markup(), id="legend")
+        yield self._legend
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -543,21 +612,26 @@ class DiningApp(App):
         date_str = self._date.isoformat()
         weekday = self._date.strftime("%A")
         meal = self.meal_filter or "all meals"
-        self.sub_title = f"{date_str} ({weekday}) \N{RIGHTWARDS DOUBLE ARROW} {meal}"
+        diet = f" \N{MIDDLE DOT} {self.diet_filter} only" if self.diet_filter else ""
+        self.sub_title = f"{date_str} ({weekday}) \N{RIGHTWARDS DOUBLE ARROW} {meal}{diet}"
 
     def format_title(self, title, sub_title):
-        """Like the default (dim subtitle), but the meal stands out in the
-        footer's key color."""
+        """Like the default (dim subtitle), but the meal and diet filter stand
+        out in the footer's key color."""
         meal = self.meal_filter or "all meals"
-        if not sub_title.endswith(meal):
+        marker = f"\N{RIGHTWARDS DOUBLE ARROW} {meal}"
+        if marker not in sub_title:
             return super().format_title(title, sub_title)
-        prefix = sub_title[: -len(meal)]
-        return Content.assemble(
+        prefix, _, rest = sub_title.partition(marker)
+        parts = [
             Content(title),
             (" \N{EM DASH} ", "dim"),
-            Content(prefix).stylize("dim"),
+            Content(prefix + "\N{RIGHTWARDS DOUBLE ARROW} ").stylize("dim"),
             (meal, "$footer-key-foreground"),
-        )
+        ]
+        if self.diet_filter:
+            parts += [(" \N{MIDDLE DOT} ", "dim"), (f"{self.diet_filter} only", "$footer-key-foreground")]
+        return Content.assemble(*parts)
 
     def set_meal_filter(self, meal):
         if not self.courts or meal == self.meal_filter:
@@ -700,9 +774,19 @@ class DiningApp(App):
         if not self.courts:
             return
         self.show_traits = not self.show_traits
+        self._legend.set_class(self.show_traits, "visible")
         for pane in self.panes:
             if pane.entry is not None:
                 await pane.refresh_content()
+
+    def action_cycle_diet(self):
+        """No filter -> vegetarian -> vegan -> no filter."""
+        if not self.courts:
+            return
+        index = DIET_FILTERS.index(self.diet_filter)
+        self.diet_filter = DIET_FILTERS[(index + 1) % len(DIET_FILTERS)]
+        self.update_sub_title()
+        self.refresh_panes()
 
     def action_filter_breakfast(self):
         self.set_meal_filter("Breakfast")
