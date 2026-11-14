@@ -234,7 +234,7 @@ async def main():
             content = pane_content(pane)
             if "no matches for" in content:
                 continue
-            items = [line for line in content.splitlines() if "\N{bullet} " in line and "OPEN" not in line]
+            items = [line for line in content.splitlines() if line.startswith(tui.ITEM_PREFIX)]
             assert items, f"{pane.court_name!r} shows no items and no notice"
             for line in items:
                 plain = line.replace("[bold reverse]", "").replace("[/bold reverse]", "")

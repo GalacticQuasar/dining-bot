@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -165,6 +166,38 @@ def current_meal(entries, now):
     return None
 
 
+def clock(moment):
+    """11:00a / 2:30p, in the time zone the API gave (Purdue's)."""
+    hour = moment.hour % 12 or 12
+    return f"{hour}:{moment.minute:02d}{'a' if moment.hour < 12 else 'p'}"
+
+
+def duration(delta):
+    minutes = max(1, math.ceil(delta.total_seconds() / 60))
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
+def meal_status_markup(meal, now=None):
+    """The line under a meal's name: its hours, plus where `now` falls in them
+    when the meal is today. Meals without hours fall back to the API status."""
+    start, end = meal.get("start"), meal.get("end")
+    if not (start and end):
+        status = meal["status"].strip()
+        return f"[dim]{escape(status.capitalize())}[/dim]" if status else ""
+    hours = f"{clock(start)}\N{EN DASH}{clock(end)}"
+    if now is None or start.date() != now.astimezone(start.tzinfo).date():
+        return f"[dim]{hours}[/dim]"
+    if now < start:
+        return f"[dim]{hours} \N{MIDDLE DOT}[/dim] [yellow]opens in {duration(start - now)}[/yellow]"
+    if now < end:
+        return (
+            f"[green]\N{BLACK CIRCLE} {hours}[/green] [dim]\N{MIDDLE DOT}[/dim] "
+            f"[green]closes in {duration(end - now)}[/green]"
+        )
+    return f"[dim]ended {clock(end)}[/dim]"
+
+
 def trait_markup(trait):
     lowered = trait.lower()
     if lowered == "vegan":
@@ -225,7 +258,7 @@ def notice(text):
     return f"[dim italic]{text}[/dim italic]"
 
 
-def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
+def menu_markup(entry, show_traits=False, meal_filter=None, query="", now=None):
     """Markup for one location's menu, plus whether it has no items to show
     (closed, meal not served, or nothing matches), so the pane can collapse."""
     all_meals = entry["meals"]
@@ -250,15 +283,10 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
         return notice("(closed all day)"), True
     parts = []
     for meal in meals:
-        status = meal["status"].strip().upper()
-        if status == "OPEN":
-            status_text = "[green]\N{bullet} OPEN[/green]"
-        elif status:
-            status_text = f"[dim]({escape(meal['status'])})[/dim]"
-        else:
-            status_text = ""
-        header = f"[bold]{escape(meal['name'])}[/bold]  {status_text}".rstrip()
-        parts.append(header)
+        parts.append(f"[bold]{escape(meal['name'])}[/bold]")
+        status = meal_status_markup(meal, now)
+        if status:
+            parts.append(status)
         by_station = {}
         for item in meal["items"]:
             by_station.setdefault(item["station"], []).append(item)
@@ -312,9 +340,15 @@ class LocationPane(VerticalScroll):
         self.entry = entry
         await self.refresh_content()
 
-    async def refresh_content(self):
+    async def refresh_content(self, reset_scroll=True):
+        if self.entry is None:
+            return
         self.markup, empty = menu_markup(
-            self.entry, self.app.show_traits, self.app.meal_filter, self.app.search_query
+            self.entry,
+            self.app.show_traits,
+            self.app.meal_filter,
+            self.app.search_query,
+            now=datetime.now().astimezone(),
         )
         # Nothing to show: shrink to a narrow strip so menus get the room.
         if self.has_class("collapsed") != empty:
@@ -330,7 +364,8 @@ class LocationPane(VerticalScroll):
         else:
             await self.remove_children()
             await self.mount(Static(renderable))
-        self.scroll_to(y=0, animate=False)
+        if reset_scroll:
+            self.scroll_to(y=0, animate=False)
 
 
 class CourtPicker(ModalScreen):
@@ -465,6 +500,8 @@ class DiningApp(App):
         await container.mount_all(self.panes)
         self.size_panes()
         self.panes[0].focus()
+        # Keep "closes in 40m" current.
+        self.set_interval(30, self.tick_clock)
         # In a worker so keys work while menus load; a date change cancels it.
         self.run_worker(self.initial_load(), exclusive=True)
 
@@ -528,6 +565,11 @@ class DiningApp(App):
         self.meal_filter = meal
         self.update_sub_title()
         self.refresh_panes()
+
+    def tick_clock(self):
+        for pane in self.panes:
+            if pane.entry is not None:
+                pane.call_after_refresh(pane.refresh_content, False)
 
     def refresh_panes(self):
         for pane in self.panes:
