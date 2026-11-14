@@ -210,6 +210,21 @@ async def main():
         )
         print("all meals restored ok")
 
+        # m steps through the meals served today in order, M steps back, and
+        # both wrap around through all meals.
+        served = tui.meals_served([p.entry for p in panes if p.entry])
+        assert served, "no meals served today"
+        await pilot.press("m")
+        await pilot.pause()
+        assert app.meal_filter == served[0], f"m should pick {served[0]!r}"
+        await pilot.press("M", "M")
+        await pilot.pause()
+        assert app.meal_filter == served[-1], "M should wrap around to the last meal"
+        await pilot.press("m")
+        await pilot.pause()
+        assert app.meal_filter is None, "m after the last meal should show all meals"
+        print(f"meal cycle ok: {' -> '.join(served)}")
+
         # Pressing the same filter again is a no-op (guard clause).
         await pilot.press("l")
         await pilot.pause()

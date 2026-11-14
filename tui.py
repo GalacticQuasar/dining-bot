@@ -259,6 +259,28 @@ def filter_diet(meals, diet):
     return [m for m in meals if m["items"]]
 
 
+# Serving order for the meal cycle; unknown names go after, by start time.
+MEAL_ORDER = ("Breakfast", "Brunch", "Lunch", "Late Lunch", "Dinner")
+
+
+def meals_served(entries):
+    """Names of the meals with items or hours at any location, in serving
+    order. Meals that are closed everywhere are left out."""
+    earliest = {}
+    for entry in entries:
+        for meal in entry["meals"]:
+            if not (meal["items"] or meal["start"]):
+                continue
+            start = meal["start"].timestamp() if meal["start"] else math.inf
+            earliest[meal["name"]] = min(start, earliest.get(meal["name"], math.inf))
+
+    def key(name):
+        rank = MEAL_ORDER.index(name) if name in MEAL_ORDER else len(MEAL_ORDER)
+        return (rank, earliest[name], name)
+
+    return sorted(earliest, key=key)
+
+
 def filter_meals(meals, meal_filter):
     """Keep only meals whose name matches meal_filter (case-insensitive).
     None or empty means no filtering."""
@@ -363,8 +385,12 @@ class LocationPane(VerticalScroll):
     # Override VerticalScroll's horizontal scroll keys: left/right move
     # between panes instead.
     BINDINGS = [
-        Binding("left", "app.focus_pane(-1)", "Prev court", key_display="\N{LEFTWARDS ARROW}"),
-        Binding("right", "app.focus_pane(1)", "Next court", key_display="\N{RIGHTWARDS ARROW}"),
+        Binding(
+            "left", "app.focus_pane(-1)", "Prev court", key_display="\N{LEFTWARDS ARROW}", show=False
+        ),
+        Binding(
+            "right", "app.focus_pane(1)", "Next court", key_display="\N{RIGHTWARDS ARROW}", show=False
+        ),
     ]
 
     def __init__(self, court_name, **kwargs):
@@ -421,6 +447,14 @@ class LocationPane(VerticalScroll):
             await self.mount(Static(renderable))
         if reset_scroll:
             self.scroll_to(y=0, animate=False)
+
+
+class PaneRow(HorizontalScroll):
+    """The row of panes. Re-sizes them whenever its own width changes (window
+    resize, help panel opening), not just when the app is resized."""
+
+    def on_resize(self, event) -> None:
+        self.call_after_refresh(self.app.size_panes)
 
 
 class CourtPicker(ModalScreen):
@@ -510,19 +544,23 @@ class DiningApp(App):
     }
     """
 
+    # The footer shows the everyday keys; the rest are listed under `?`.
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("t", "today", "Today"),
         ("n", "next_day", "Next day"),
-        ("p", "previous_day", "Prev day"),
-        ("v", "toggle_traits", "Diet labels"),
-        ("f", "cycle_diet", "Veg filter"),
-        ("b", "filter_breakfast", "Breakfast"),
-        ("l", "filter_lunch", "Lunch"),
-        ("d", "filter_dinner", "Dinner"),
-        ("a", "filter_all", "All meals"),
-        ("c", "pick_courts", "Courts"),
+        Binding("p", "previous_day", "Prev day", show=False),
+        Binding("m", "cycle_meal(1)", "Meal", tooltip="Next meal served that day, then all"),
+        Binding("M", "cycle_meal(-1)", "Prev meal", show=False),
+        Binding("b", "filter_breakfast", "Breakfast", show=False),
+        Binding("l", "filter_lunch", "Lunch", show=False),
+        Binding("d", "filter_dinner", "Dinner", show=False),
+        Binding("a", "filter_all", "All meals", show=False),
+        Binding("v", "toggle_traits", "Labels", tooltip="Diet and allergen labels"),
+        Binding("f", "cycle_diet", "Veg", tooltip="Vegetarian only, vegan only, off"),
+        Binding("c", "pick_courts", "Courts", tooltip="Choose which locations to show"),
         Binding("slash", "search", "Search", key_display="/"),
+        Binding("question_mark", "toggle_help", "Keys", key_display="?"),
         # Priority so the screen's own escape binding doesn't swallow it.
         Binding("escape", "clear_search", "Clear search", show=False, priority=True),
     ]
@@ -548,7 +586,7 @@ class DiningApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield HorizontalScroll(id="panes")
+        yield PaneRow(id="panes")
         self._search = Input(placeholder="Search items (Enter to keep, Esc to clear)", id="search")
         yield self._search
         self._legend = Static(legend_markup(), id="legend")
@@ -724,9 +762,6 @@ class DiningApp(App):
                 extra -= 1
             pane.styles.width = width
 
-    def on_resize(self, event) -> None:
-        self.call_after_refresh(self.size_panes)
-
     def visible_panes(self):
         return [p for p in self.panes if p.display]
 
@@ -787,6 +822,19 @@ class DiningApp(App):
         self.diet_filter = DIET_FILTERS[(index + 1) % len(DIET_FILTERS)]
         self.update_sub_title()
         self.refresh_panes()
+
+    def action_cycle_meal(self, step):
+        """Step through all meals plus each meal served on the shown date."""
+        entries = [p.entry for p in self.panes if p.entry is not None]
+        options = [None, *meals_served(entries)]
+        index = options.index(self.meal_filter) if self.meal_filter in options else 0
+        self.set_meal_filter(options[(index + step) % len(options)])
+
+    def action_toggle_help(self):
+        if self.screen.query("HelpPanel"):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()
 
     def action_filter_breakfast(self):
         self.set_meal_filter("Breakfast")
