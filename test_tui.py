@@ -68,7 +68,7 @@ async def main():
             assert not any(
                 isinstance(c, tui.LoadingIndicator) for c in children
             ), f"pane {pane.court_name!r} still loading"
-            content = children[0].content
+            content = pane.markup
             assert "Error:" not in content, f"pane {pane.court_name!r} errored: {content}"
             print(f"  {pane.court_name}: {len(content)} chars of menu")
 
@@ -77,7 +77,7 @@ async def main():
         with_menu = sum(
             1
             for p in panes
-            if "\N{bullet}" in p.children[0].content
+            if "\N{bullet}" in p.markup
         )
         assert with_menu >= 1, "no pane rendered an actual menu"
         print(f"panes with menus: {with_menu}/6")
@@ -104,7 +104,7 @@ async def main():
             for it in meal["items"]
         )
         assert any_traits, "API returned no traits at all; toggle test would be vacuous"
-        before = panes[0].children[0].content
+        before = panes[0].markup
         assert app.show_traits is False
         assert "[vegan]" not in before and "[vegetarian]" not in before, (
             "traits should be hidden by default"
@@ -112,7 +112,7 @@ async def main():
         await pilot.press("v")
         await pilot.pause()
         assert app.show_traits is True
-        after = panes[0].children[0].content
+        after = panes[0].markup
         assert any(tag in after for tag in ("[vegan]", "[vegetarian]", "[dim][")), (
             "traits should be visible after toggle"
         )
@@ -123,12 +123,12 @@ async def main():
         await pilot.press("v")
         await pilot.pause()
         assert app.show_traits is False
-        assert panes[0].children[0].content == before, "toggle off should restore content"
+        assert panes[0].markup == before, "toggle off should restore content"
         print("toggle off ok")
 
         # Meal filtering: b/l/d narrow panes to one meal, a restores.
         def pane_content(pane):
-            return pane.children[0].content
+            return pane.markup
 
         all_content = pane_content(panes[0])
         assert "Breakfast" in all_content or "Lunch" in all_content, (

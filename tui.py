@@ -15,7 +15,10 @@ import asyncio
 from datetime import date, datetime, timedelta
 
 import httpx
+from rich.console import Group
 from rich.markup import escape
+from rich.table import Table
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import HorizontalScroll, Vertical, VerticalScroll
@@ -193,6 +196,28 @@ def highlight(text, query):
     return "".join(parts)
 
 
+ITEM_PREFIX = "  \N{bullet} "
+
+
+def markup_renderable(markup):
+    """Turn menu markup into a Rich renderable. Runs of item lines go into a
+    two-column grid, so a long name wraps under itself, not under the bullet."""
+    parts = []
+    grid = None
+    for line in markup.split("\n"):
+        if not line.startswith(ITEM_PREFIX):
+            grid = None
+            parts.append(Text.from_markup(line))
+            continue
+        if grid is None:
+            grid = Table.grid(padding=(0, 1), expand=True)
+            grid.add_column(width=len(ITEM_PREFIX) - 1, no_wrap=True)
+            grid.add_column(ratio=1, overflow="fold")
+            parts.append(grid)
+        grid.add_row(ITEM_PREFIX.rstrip(), Text.from_markup(line[len(ITEM_PREFIX):]))
+    return Group(*parts)
+
+
 def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
     all_meals = entry["meals"]
     if not all_meals:
@@ -227,7 +252,7 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
         for station, items in by_station.items():
             parts.append(f"[bold cyan]{escape(station)}[/bold cyan]")
             for item in items:
-                line = f"  \N{bullet} {highlight(item['item'], query)}"
+                line = f"{ITEM_PREFIX}{highlight(item['item'], query)}"
                 if show_traits and item["traits"]:
                     tags = " ".join(trait_markup(t) for t in item["traits"])
                     line = f"{line} {tags}"
@@ -252,17 +277,21 @@ class LocationPane(VerticalScroll):
         self.court_name = court_name
         self.border_title = court_name
         self.entry = None
+        # The markup behind the current content (tests read it).
+        self.markup = ""
 
     async def show_loading(self):
         self.entry = None
+        self.markup = ""
         self.border_title = self.court_name
         await self.remove_children()
         await self.mount(LoadingIndicator())
 
     async def show_error(self, message):
         self.entry = None
+        self.markup = f"[red]Error: {escape(str(message))}[/red]"
         await self.remove_children()
-        await self.mount(Static(f"[red]Error: {escape(str(message))}[/red]"))
+        await self.mount(Static(markup_renderable(self.markup)))
 
     async def show_menu(self, entry):
         self.entry = entry
@@ -270,17 +299,18 @@ class LocationPane(VerticalScroll):
         await self.refresh_content()
 
     async def refresh_content(self):
-        markup = menu_markup(
+        self.markup = menu_markup(
             self.entry, self.app.show_traits, self.app.meal_filter, self.app.search_query
         )
+        renderable = markup_renderable(self.markup)
         # Update in place when possible: overlapping remove/mount calls (e.g.
         # one per search keystroke) could otherwise leave two Statics.
         children = list(self.children)
         if len(children) == 1 and isinstance(children[0], Static):
-            children[0].update(markup)
+            children[0].update(renderable)
         else:
             await self.remove_children()
-            await self.mount(Static(markup))
+            await self.mount(Static(renderable))
         self.scroll_to(y=0, animate=False)
 
 
