@@ -26,6 +26,9 @@ from textual.content import Content
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, LoadingIndicator, SelectionList, Static
 
+PANE_MIN_WIDTH = 38
+COLLAPSED_WIDTH = 18
+
 DINING_API_URL = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
 
 LOCATIONS_QUERY = """
@@ -218,13 +221,19 @@ def markup_renderable(markup):
     return Group(*parts)
 
 
+def notice(text):
+    return f"[dim italic]{text}[/dim italic]"
+
+
 def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
+    """Markup for one location's menu, plus whether it has no items to show
+    (closed, meal not served, or nothing matches), so the pane can collapse."""
     all_meals = entry["meals"]
     if not all_meals:
-        return "[dim italic]Closed or no menu for this date.[/dim italic]"
+        return notice("Closed or no menu for this date."), True
     meals = filter_meals(all_meals, meal_filter)
     if not meals:
-        return f"[dim italic](no {escape(meal_filter)} served here)[/dim italic]"
+        return notice(f"(no {escape(meal_filter)} served here)"), True
     query = query.strip()
     if query:
         target = query.lower()
@@ -234,7 +243,11 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
         ]
         meals = [meal for meal in meals if meal["items"]]
         if not meals:
-            return f"[dim italic](no matches for {escape(query)!r})[/dim italic]"
+            return notice(f"(no matches for {escape(query)!r})"), True
+    if not any(meal["items"] for meal in meals):
+        if meal_filter:
+            return notice(f"({escape(meal_filter)} closed)"), True
+        return notice("(closed all day)"), True
     parts = []
     for meal in meals:
         status = meal["status"].strip().upper()
@@ -259,7 +272,7 @@ def menu_markup(entry, show_traits=False, meal_filter=None, query=""):
                 parts.append(line)
             parts.append("")
         parts.append("")
-    return "\n".join(parts).rstrip()
+    return "\n".join(parts).rstrip(), False
 
 
 class LocationPane(VerticalScroll):
@@ -284,24 +297,30 @@ class LocationPane(VerticalScroll):
         self.entry = None
         self.markup = ""
         self.border_title = self.court_name
+        self.remove_class("collapsed")
         await self.remove_children()
         await self.mount(LoadingIndicator())
 
     async def show_error(self, message):
         self.entry = None
         self.markup = f"[red]Error: {escape(str(message))}[/red]"
+        self.remove_class("collapsed")
         await self.remove_children()
         await self.mount(Static(markup_renderable(self.markup)))
 
     async def show_menu(self, entry):
         self.entry = entry
-        self.border_title = entry["formal_name"]
         await self.refresh_content()
 
     async def refresh_content(self):
-        self.markup = menu_markup(
+        self.markup, empty = menu_markup(
             self.entry, self.app.show_traits, self.app.meal_filter, self.app.search_query
         )
+        # Nothing to show: shrink to a narrow strip so menus get the room.
+        if self.has_class("collapsed") != empty:
+            self.set_class(empty, "collapsed")
+            self.app.size_panes()
+        self.border_title = self.court_name if empty else self.entry["formal_name"]
         renderable = markup_renderable(self.markup)
         # Update in place when possible: overlapping remove/mount calls (e.g.
         # one per search keystroke) could otherwise leave two Statics.
@@ -373,7 +392,6 @@ class DiningApp(App):
         height: 1fr;
     }
     LocationPane {
-        width: 40;
         height: 1fr;
         border: tall $primary;
         padding: 0 1;
@@ -381,6 +399,9 @@ class DiningApp(App):
     }
     LocationPane:focus {
         border: tall $secondary;
+    }
+    LocationPane.collapsed {
+        color: $text-muted;
     }
     #search {
         display: none;
@@ -442,6 +463,7 @@ class DiningApp(App):
             return
         self.panes = [LocationPane(court) for court in self.courts]
         await container.mount_all(self.panes)
+        self.size_panes()
         self.panes[0].focus()
         # In a worker so keys work while menus load; a date change cancels it.
         self.run_worker(self.initial_load(), exclusive=True)
@@ -565,6 +587,30 @@ class DiningApp(App):
         self._date = new_date
         self.run_worker(self.load_menus(), exclusive=True)
 
+    def size_panes(self):
+        """Collapsed panes get a fixed strip; the others share the rest of the
+        width, but never shrink below PANE_MIN_WIDTH (the row scrolls instead).
+        Done by hand because `1fr` inside a HorizontalScroll resolves against
+        the whole viewport."""
+        panes = self.visible_panes()
+        if not panes:
+            return
+        container = self.query_one("#panes", HorizontalScroll)
+        expanded = [p for p in panes if not p.has_class("collapsed")]
+        room = container.size.width - COLLAPSED_WIDTH * (len(panes) - len(expanded))
+        if expanded:
+            share, extra = divmod(max(room, 0), len(expanded))
+        for pane in panes:
+            if pane.has_class("collapsed"):
+                width = COLLAPSED_WIDTH
+            else:
+                width = max(PANE_MIN_WIDTH, share + (1 if extra > 0 else 0))
+                extra -= 1
+            pane.styles.width = width
+
+    def on_resize(self, event) -> None:
+        self.call_after_refresh(self.size_panes)
+
     def visible_panes(self):
         return [p for p in self.panes if p.display]
 
@@ -572,6 +618,7 @@ class DiningApp(App):
         self.hidden_courts = set(hidden)
         for pane in self.panes:
             pane.display = pane.court_name not in self.hidden_courts
+        self.size_panes()
 
     def action_pick_courts(self):
         if not self.courts:
