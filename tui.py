@@ -565,6 +565,7 @@ class DiningApp(App):
         border-title-color: $text-muted;
         padding: 0 1;
         background: $surface;
+        scrollbar-size-vertical: 1;
     }
     LocationPane:focus {
         border: tall $accent;
